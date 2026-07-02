@@ -59,8 +59,8 @@ gnomAD frequency and ClinVar priors (both still matter on the non-coding path).
 
 ```
 export ALPHAGENOME_API_KEY=...        # non-commercial research key
-python -m variant_curator.cli --gene CFTR --hgvs "c.3717+12191C>T"
-python -m variant_curator.cli --noncoding-demo   # illustrative deep-intronic + regulatory demos
+python -m variant_curator.cli --gene MYBPC3 --hgvs "c.1224-52G>A"   # real intronic, ClinVar P/LP
+python -m variant_curator.cli --noncoding-demo   # illustrative intronic + splice-site demos
 ```
 
 What it reports, each with a linked `Source`:

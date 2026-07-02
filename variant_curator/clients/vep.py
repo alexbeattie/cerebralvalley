@@ -17,9 +17,27 @@ from ..models import Source, VariantConsequence, VepEvidence
 
 VEP_BASE = "https://rest.ensembl.org"
 
+# VEP returns Sequence Ontology terms. Missense/nonsense go down the protein path;
+# the non-coding terms are mapped to the classes the pipeline routes to AlphaGenome.
+# Several finer-grained splice terms collapse onto SPLICE_REGION on purpose — the
+# AlphaGenome splicing scorers care about the effect, not the exact SO label.
 _CONSEQUENCE_MAP = {
     "missense_variant": VariantConsequence.MISSENSE,
     "stop_gained": VariantConsequence.NONSENSE,
+    "splice_donor_variant": VariantConsequence.SPLICE_DONOR,
+    "splice_acceptor_variant": VariantConsequence.SPLICE_ACCEPTOR,
+    "splice_region_variant": VariantConsequence.SPLICE_REGION,
+    "splice_donor_5th_base_variant": VariantConsequence.SPLICE_REGION,
+    "splice_donor_region_variant": VariantConsequence.SPLICE_REGION,
+    "splice_polypyrimidine_tract_variant": VariantConsequence.SPLICE_REGION,
+    "intron_variant": VariantConsequence.INTRON,
+    "5_prime_UTR_variant": VariantConsequence.FIVE_PRIME_UTR,
+    "3_prime_UTR_variant": VariantConsequence.THREE_PRIME_UTR,
+    "upstream_gene_variant": VariantConsequence.UPSTREAM,
+    "downstream_gene_variant": VariantConsequence.DOWNSTREAM,
+    "regulatory_region_variant": VariantConsequence.REGULATORY,
+    "TF_binding_site_variant": VariantConsequence.REGULATORY,
+    "intergenic_variant": VariantConsequence.INTERGENIC,
 }
 
 

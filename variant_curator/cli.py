@@ -20,14 +20,16 @@ from .pipeline import assemble_evidence
 # missense in the RING domain. Good end-to-end smoke test.
 DEMO_VARIANT = VariantInput(gene="BRCA1", hgvs_c="c.181T>G")
 
-# Illustrative non-coding demos for the AlphaGenome path. HGVS is indicative;
-# without a key these print a clean "skipped" line rather than crashing.
+# Illustrative non-coding demos for the AlphaGenome path (all VEP-resolvable on the
+# gene's MANE transcript). Without a key these print a clean "skipped" line rather
+# than crashing; with a key they exercise the splicing/regulatory scorers.
 DEMO_NONCODING = [
-    # CFTR c.3717+12191C>T (legacy 3849+10kbC>T): classic deep intronic variant
-    # that creates a cryptic splice site — invisible to protein predictors.
-    VariantInput(gene="CFTR", hgvs_c="c.3717+12191C>T"),
-    # LDLR 5' regulatory-region example (familial hypercholesterolemia, liver).
-    VariantInput(gene="LDLR", hgvs_c="c.-135C>G"),
+    # MYBPC3 c.1224-52G>A: a real intronic variant, ClinVar Pathogenic/Likely
+    # pathogenic (hypertrophic cardiomyopathy) — the kind of splicing effect the
+    # protein path is blind to.
+    VariantInput(gene="MYBPC3", hgvs_c="c.1224-52G>A"),
+    # CFTR c.1585-1G>A: canonical splice-acceptor loss (cystic fibrosis).
+    VariantInput(gene="CFTR", hgvs_c="c.1585-1G>A"),
 ]
 
 
