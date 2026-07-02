@@ -1,3 +1,10 @@
 httpx==0.27.2
 pandas>=2.0
 alphagenome>=0.1.0
+
+# regmodel (MPRA sequence->activity model + ISM). torch is the heavy dependency; the
+# CPU-only wheels are fine -- no GPU is needed to train or run the offline demo/tests.
+torch>=2.0
+numpy>=1.24
+scipy>=1.10
+matplotlib>=3.7

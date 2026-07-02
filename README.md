@@ -82,6 +82,73 @@ never fabricates a score — `import variant_curator` and `pytest` both run full
 so a prediction maps to `PP3`/`BP4` at most and can never on its own drive a Pathogenic/Benign
 call. The research-use caveat is surfaced wherever scores are shown.
 
+## `regmodel` — a miniature MPRA sequence→activity model with single-base ISM
+
+A second, self-contained package in this repo (`regmodel/`). Where `variant_curator` curates
+one variant from public databases, `regmodel` reproduces in miniature what **Katie Pollard's
+lab** does with deep learning: train a compact CNN on a **massively parallel reporter assay
+(MPRA)** that maps short DNA sequences to regulatory activity, then run **in-silico
+mutagenesis (ISM)** — mutate every base and read off a per-position mutation-effect map (the
+approach behind PARM, Nature 2025, and SuPreMo/Akita). The differentiated step is a
+**head-to-head cross-check against [AlphaGenome](https://deepmind.google.com/science/alphagenome)**,
+a 1 Mb genome foundation model, on the same variants: *where does a small task-specific MPRA
+model agree or disagree with a foundation model?*
+
+### Offline demo (no network, no GPU, no API key)
+
+```
+python -m regmodel.cli demo          # or: python -m regmodel.cli demo --fast
+```
+
+This trains a Basset/DeepSTARR-like CNN on a **built-in synthetic MPRA** (random sequences
+with a planted AP-1-like activator motif `TGACTCA` and a weaker repressor; activity = weighted
+motif content + Gaussian noise, fully seeded), prints held-out **Pearson/Spearman/MSE**, runs
+ISM on a held-out sequence, and writes everything to `artifacts/`:
+
+- `model.pt` + `model.json` — weights and a sidecar recording arch, hyperparameters, data
+  provenance, seed, timestamp, and metrics (the full recipe for the numbers).
+- `ism_heatmap.png`, `ism_importance.png` — the (L×4) mutation-effect map and per-base
+  importance track; on the synthetic task the ISM peak lands on the planted motif (the tests
+  assert this).
+- `metrics.json`, `comparison.csv`, `comparison.json` — run-level provenance and the
+  cross-check table.
+
+Other subcommands:
+
+```
+python -m regmodel.cli train --out artifacts            # train + save model + sidecar
+python -m regmodel.cli ism --seq TGACTCAGCTAGCTAGCTAG   # ISM map for one sequence
+python -m regmodel.cli variant --seq ACGT... --pos 100 --alt G   # predicted activity delta
+python -m regmodel.cli compare --model artifacts/model.pt        # AlphaGenome cross-check
+```
+
+### AlphaGenome cross-check
+
+`regmodel.compare` **reuses `variant_curator`'s AlphaGenome client verbatim**
+(`fetch_alphagenome`). For each variant it lines up our model's ISM delta on a local sequence
+window against AlphaGenome's calibrated splicing/regulatory magnitude, signs the agreement,
+and correlates them. The same graceful-degradation rule carries over: with no
+`ALPHAGENOME_API_KEY`, no SDK, or an API error, the external half is **skipped with a recorded
+reason and `Source`** — we still emit our-model rows and **never fabricate** an AlphaGenome
+score. Every AlphaGenome-derived row carries its linked `Source`.
+
+```
+export ALPHAGENOME_API_KEY=...        # non-commercial research key; without it, skips cleanly
+python -m regmodel.cli compare --out artifacts
+```
+
+### Research use only
+
+By default this is a **toy model trained on synthetic data** with a planted motif — enough to
+demonstrate the train→ISM→cross-check pattern and to test it deterministically, **not** to draw
+biological conclusions. Real conclusions require loading a real MPRA: `regmodel.data` ships a
+network-gated `load_real_mpra` stub naming candidate public datasets (lentiMPRA developing
+human brain [Pollard/Ahituv]; Sharpr-MPRA). Nothing here is clinically validated.
+
+`torch` is the one heavy dependency; CPU-only wheels are sufficient (`pip install -r
+requirements.txt`). `python -c "import regmodel"`, `python -m regmodel.cli demo`, and `pytest`
+all run fully offline.
+
 ## Architecture
 
 ```
@@ -97,6 +164,16 @@ variant_curator/
   acmg.py             maps AlphaGenome signals to supporting-only PP3/BP4 with a Source
   pipeline.py         orchestrates the above into one EvidenceBundle; routes by consequence
   cli.py              prints the bundle for one variant (hardcoded demo or --gene/--hgvs)
+
+regmodel/
+  encoding.py         one-hot DNA (4×L, ACGT order), decode, reverse-complement
+  data.py             SyntheticMPRA (offline default) + network-gated real-loader stub
+  model.py            compact Conv1d CNN (motif detectors -> global pool -> MLP -> scalar)
+  train.py            seeded split/train/early-stop; held-out Pearson/Spearman/MSE; sidecar
+  ism.py              (L×4) ISM delta matrix, importance track, single-variant delta
+  compare.py          AlphaGenome cross-check reusing variant_curator's client (skips w/o key)
+  plots.py            matplotlib (Agg) ISM heatmap, importance track, cross-check scatter
+  cli.py              train / ism / variant / compare / demo (offline)
 ```
 
 Design decision worth calling out: gnomAD variant ids are built from VEP's `vcf_string`

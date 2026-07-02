@@ -27,3 +27,8 @@ htmlcov/
 .DS_Store
 .idea/
 .vscode/
+
+# Model training outputs
+artifacts/
+*.pt
+*.pth
