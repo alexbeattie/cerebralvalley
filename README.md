@@ -47,6 +47,41 @@ Middle Eastern samples. When a patient's ancestry is thinly represented at a loc
 frequency-based criteria must be flagged low-confidence rather than asserted — that layer
 lands on Day 5.
 
+## Non-coding variants (AlphaGenome)
+
+Deep intronic and regulatory variants are exactly what a consequence-based tool
+rejects — they aren't missense/nonsense — yet they can be disease-causing by creating
+cryptic splice sites, disrupting branch points, or altering transcription,
+accessibility, or expression. Instead of refusing them, the pipeline now routes
+intronic / splice / UTR / regulatory consequences to **[AlphaGenome](https://deepmind.google.com/science/alphagenome)**
+(Google DeepMind) for splicing and regulatory interpretation, while still pulling
+gnomAD frequency and ClinVar priors (both still matter on the non-coding path).
+
+```
+export ALPHAGENOME_API_KEY=...        # non-commercial research key
+python -m variant_curator.cli --gene CFTR --hgvs "c.3717+12191C>T"
+python -m variant_curator.cli --noncoding-demo   # illustrative deep-intronic + regulatory demos
+```
+
+What it reports, each with a linked `Source`:
+
+- **Splicing signals** (`SPLICE_SITES`, `SPLICE_SITE_USAGE`, `SPLICE_JUNCTIONS`) — the
+  primary signal for deep intronic variants, filtered to the gene of interest.
+- **Regulatory signals** (`RNA_SEQ`, `CAGE`, `PROCAP`, `DNASE`, `ATAC`, `CHIP_TF`,
+  `CHIP_HISTONE`) — reported tissue-first using a small, provisional per-gene disease-tissue
+  hint (e.g. LDLR→liver, MYH7→heart, SCN1A→brain, CFTR→lung), falling back to the top
+  tissue across all tracks.
+- **ACMG mapping** — a strong calibrated splicing/regulatory effect maps to **`PP3`**, no
+  predicted effect to **`BP4`**, and the grey zone abstains. Thresholds are provisional and
+  need calibration against a labelled set.
+
+Two hard rules carry over. **Abstain, don't guess:** with no key, no package, or an API
+error, the tool prints `AlphaGenome skipped: ALPHAGENOME_API_KEY not set` (or the reason) and
+never fabricates a score — `import variant_curator` and `pytest` both run fully offline.
+**Supporting evidence only:** AlphaGenome is a research model, **not clinically validated**,
+so a prediction maps to `PP3`/`BP4` at most and can never on its own drive a Pathogenic/Benign
+call. The research-use caveat is surfaced wherever scores are shown.
+
 ## Architecture
 
 ```
@@ -58,7 +93,9 @@ variant_curator/
     vep.py            HGVS -> consequence, protein change, forward-strand GRCh38 coords
     gnomad.py         variant id -> ancestry-stratified AF + FAF95 (gnomAD v4 joint)
     clinvar.py        gene + HGVS -> prior classifications, star rating, conflict flag
-  pipeline.py         orchestrates the above into one EvidenceBundle; enforces scope
+    alphagenome.py    non-coding path: splicing + regulatory scoring (lazy SDK, key-gated)
+  acmg.py             maps AlphaGenome signals to supporting-only PP3/BP4 with a Source
+  pipeline.py         orchestrates the above into one EvidenceBundle; routes by consequence
   cli.py              prints the bundle for one variant (hardcoded demo or --gene/--hgvs)
 ```
 
@@ -75,9 +112,10 @@ python3 -m venv .venv
 ./.venv/bin/python -m variant_curator.cli --gene SCN5A --hgvs "c.1673A>G"
 ```
 
-Requires network access. All APIs are public and keyless. NCBI E-utilities are rate-limited
-to ~3 req/s without a key; Ensembl VEP occasionally returns 503 under load — the HTTP layer
-retries with backoff.
+Requires network access. VEP, gnomAD, and ClinVar are public and keyless; NCBI E-utilities
+are rate-limited to ~3 req/s without a key and Ensembl VEP occasionally returns 503 under
+load — the HTTP layer retries with backoff. The non-coding path additionally needs
+`ALPHAGENOME_API_KEY` (see below); without it that step is skipped cleanly, not fatal.
 
 ## Roadmap
 
@@ -93,9 +131,11 @@ retries with backoff.
   panel; override any criterion and watch the call update.
 - **Day 7 — polish, demo, reproducibility notes** so a judge can rerun it.
 
-Planned additional evidence sources for the agent phase: AlphaMissense and SpliceAI
-(in-silico prediction), ClinGen (gene–disease validity), PubMed/LitVar (variant-linked
-literature).
+Planned additional evidence sources for the agent phase: AlphaMissense (in-silico missense
+prediction), ClinGen (gene–disease validity), PubMed/LitVar (variant-linked literature). The
+non-coding path is handled by **AlphaGenome** (see above), which supersedes the originally
+planned SpliceAI — it covers cryptic-splice effects *and* regulatory (expression /
+accessibility / TSS) signal in one model, calibrated genome-wide.
 
 ## Blocked on user input before Day 3+
 
