@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import numpy as np
+import pytest
 
 from regmodel.data import (
     ACTIVATOR_MOTIF,
@@ -50,3 +51,12 @@ def test_provenance_is_complete():
 def test_labeled_sequence_has_motif_at_reported_span():
     seq, (start, end) = make_labeled_sequence(length=100, seed=42)
     assert seq[start:end] == ACTIVATOR_MOTIF
+
+
+def test_too_short_length_raises_clear_error_not_numpy_high():
+    # Regression: length shorter than a motif used to surface a cryptic numpy
+    # "high <= 0" from rng.integers. It must now raise a clear, guiding ValueError.
+    with pytest.raises(ValueError, match="too short"):
+        make_synthetic_mpra(n=4, length=4, seed=0)
+    with pytest.raises(ValueError, match="too short"):
+        make_labeled_sequence(length=4, seed=0)

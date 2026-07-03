@@ -36,6 +36,11 @@ from .plots import plot_comparison_scatter, plot_importance_track, plot_ism_heat
 from .train import TrainConfig, load_model, now_iso, save_model, train_model
 
 DEFAULT_ARTIFACTS = "artifacts"
+# Length of the fallback synthetic model trained when no --model is given. The CNN is
+# length-agnostic (padded convs + global pooling), so it scores sequences of ANY length at
+# ISM/variant time. This is deliberately NOT tied to the user's --seq length: a short query
+# sequence must neither shrink the training task nor (when shorter than a motif) break it.
+DEFAULT_TRAIN_LENGTH = 200
 
 
 # --- helpers ---------------------------------------------------------------------------
@@ -46,12 +51,17 @@ def _train_synthetic(n: int, length: int, seed: int, fast: bool):
     return train_model(dataset, tc, ModelConfig(seq_length=length)), dataset
 
 
-def _load_or_train(model_path: str | None, length: int, seed: int):
-    """Load a saved model, or train a quick synthetic one so single-shot commands work."""
+def _load_or_train(model_path: str | None, seed: int, *, train_length: int = DEFAULT_TRAIN_LENGTH):
+    """Load a saved model, or train a quick synthetic one so single-shot commands work.
+
+    The fallback is trained at `train_length` (a sensible fixed size), independent of whatever
+    sequence ISM/variant will later score -- the model's global pooling makes it length-
+    agnostic at inference, so the query sequence length never feeds back into training.
+    """
     if model_path and os.path.exists(model_path):
         return load_model(model_path), f"loaded {model_path}"
-    result, _ = _train_synthetic(n=1500, length=length, seed=seed, fast=True)
-    return result.model, "trained a quick synthetic model (no --model given)"
+    result, _ = _train_synthetic(n=1500, length=train_length, seed=seed, fast=True)
+    return result.model, f"trained a quick synthetic model at L={train_length} (no --model given)"
 
 
 def _demo_variants(length: int) -> list[VariantSpec]:
@@ -108,7 +118,7 @@ def cmd_train(args) -> None:
 
 def cmd_ism(args) -> None:
     seq = args.seq.strip().upper()
-    model, how = _load_or_train(args.model, len(seq), args.seed)
+    model, how = _load_or_train(args.model, args.seed)
     matrix = ism_matrix(model, seq)
     track = importance_track(matrix)
     tops = top_positions(track, args.top)
@@ -141,7 +151,7 @@ def cmd_ism(args) -> None:
 
 def cmd_variant(args) -> None:
     seq = args.seq.strip().upper()
-    model, how = _load_or_train(args.model, len(seq), args.seed)
+    model, how = _load_or_train(args.model, args.seed)
     delta = variant_effect(model, seq, args.pos, args.alt)
     direction = "increase" if delta > 0 else ("decrease" if delta < 0 else "no change")
     print(f"model: {how}")
@@ -151,7 +161,7 @@ def cmd_variant(args) -> None:
 
 def cmd_compare(args) -> None:
     length = args.length
-    model, how = _load_or_train(args.model, length, args.seed)
+    model, how = _load_or_train(args.model, args.seed, train_length=length)
     variants = _demo_variants(length)
     result = compare_variants(model, variants, api_key=args.api_key)
 

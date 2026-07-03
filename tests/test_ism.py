@@ -69,3 +69,13 @@ def test_variant_effect_noop_is_zero_and_validates():
 def test_top_positions_orders_by_importance():
     track = np.array([0.1, 0.9, 0.2, 0.5])
     assert top_positions(track, 2) == [1, 3]
+
+
+def test_ism_runs_on_sequence_shorter_than_training_length():
+    # Regression: `ism --seq ACGT` crashed because the fallback trained at len(seq).
+    # The CNN is length-agnostic (padded convs + global pooling), so a model built for
+    # L=200 must still ISM a 4 bp query without error.
+    seed_everything(0)
+    model = build_model(ModelConfig(seq_length=200))
+    matrix = ism_matrix(model, "ACGT")
+    assert matrix.shape == (4, 4)

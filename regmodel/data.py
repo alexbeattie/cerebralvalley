@@ -77,6 +77,17 @@ def make_synthetic_mpra(
     rng = np.random.default_rng(seed)
     a_len, r_len = len(activator_motif), len(repressor_motif)
 
+    # A motif has to fit in the sequence or there's no valid position to plant it (and
+    # rng.integers(0, length - motif + 1) would get a non-positive `high`). Fail loudly with
+    # guidance rather than surfacing a cryptic "high <= 0" from numpy.
+    min_len = max(a_len, r_len)
+    if length < min_len:
+        raise ValueError(
+            f"length={length} is too short for the planted motifs (need >= {min_len}: "
+            f"activator {activator_motif!r} is {a_len} bp, repressor {repressor_motif!r} is "
+            f"{r_len} bp). Use a longer length, or shorter motifs."
+        )
+
     sequences: list[str] = []
     activities = np.empty(n, dtype=np.float32)
     activator_spans: list[list[tuple[int, int]]] = []
@@ -155,6 +166,10 @@ def make_labeled_sequence(
     """
     rng = np.random.default_rng(seed)
     a_len = len(activator_motif)
+    if length < a_len:
+        raise ValueError(
+            f"length={length} is too short to plant activator {activator_motif!r} ({a_len} bp)."
+        )
     chars = list(random_sequence(rng, length))
     start = position if position is not None else int(rng.integers(0, length - a_len + 1))
     _plant(chars, activator_motif, start)
