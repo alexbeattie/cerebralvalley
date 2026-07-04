@@ -32,3 +32,6 @@ htmlcov/
 artifacts/
 *.pt
 *.pth
+
+# trio_prioritizer CLI output
+candidates.json

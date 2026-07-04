@@ -149,6 +149,55 @@ human brain [Pollard/Ahituv]; Sharpr-MPRA). Nothing here is clinically validated
 requirements.txt`). `python -c "import regmodel"`, `python -m regmodel.cli demo`, and `pytest`
 all run fully offline.
 
+## `trio_prioritizer` — inheritance-aware prioritization of non-coding variants in trios
+
+A third self-contained package (`trio_prioritizer/`). Where `variant_curator` scores one
+variant and `regmodel` reads a per-base effect map, `trio_prioritizer` answers the trio
+question a clinical geneticist actually asks (per Matt Deardorff): *given an affected child
+and two parents, which intronic/regulatory variants look causal, and how do they rank
+against everything else on the table?* Two inheritance patterns dominate rare disease:
+
+- **De novo** — present in the child, absent in both parents (`0/1` vs `0/0`,`0/0`): the
+  usual mechanism for severe dominant disease. With WGS these now land in introns, UTRs,
+  and regulatory regions, not just exons.
+- **Compound heterozygous** — the child is affected and each parent an unaffected carrier.
+  You often find one (coding) hit but *cannot find the second*, and increasingly that
+  second allele is a deep-intronic / regulatory variant creating a cryptic splice site or
+  disrupting an enhancer. Finding and scoring that second hit is the pain point.
+
+This package supplies the **new** logic — trio genotype → inheritance mode, compound-het
+pairing by parent-of-origin (it pairs a coding allele from one parent with a non-coding
+allele from the other), and an integrated ranking — on top of the **existing** non-coding
+scorer. It reuses `variant_curator.clients.alphagenome.fetch_alphagenome` as the scoring
+engine (coordinate-based, which is what trio inputs are) via an **injectable** `scorer`, so
+tests and the demo never touch the network. Scores blend a genotype-derived inheritance
+prior with the AlphaGenome magnitude (`combined = 0.6·prior + 0.4·magnitude`; weights are
+provisional constants needing calibration). When AlphaGenome is unavailable the score is
+marked unavailable with a reason and ranking still runs on inheritance — it never fabricates
+a number. `regmodel` ISM is an optional secondary signal, used only when a local sequence
+window is supplied (so the core path needs no torch).
+
+### Offline demo (no network, no API key)
+
+```
+python -m trio_prioritizer.cli demo            # synthetic trio -> ranked candidates + candidates.json
+python -m trio_prioritizer.cli run --table trio.tsv   # rank a real TSV (live AlphaGenome if keyed)
+```
+
+The `demo` builds a **seeded synthetic trio** with a planted answer — a de novo deep-intronic
+variant in *SCN1A*, a compound-het pair in *PAH* (a paternal coding missense + a maternal
+deep-intronic "second hit"), and benign inherited distractors — and asserts the causal de
+novo and the comp-het pair land in the top two, using a deterministic offline scorer whose
+`Source` is explicitly labelled **ILLUSTRATIVE**. `run` reads a TSV
+(`chrom,pos,ref,alt,gene,consequence,proband_gt,mother_gt,father_gt`) and uses the live
+AlphaGenome scorer when `ALPHAGENOME_API_KEY` is set, otherwise degrades with a clear note.
+
+Both commands write `candidates.json` with full provenance and a research-use caveat on
+every scored claim. Scope for the MVP is autosomal de novo + recessive (homozygous and
+compound het); X-linked/imprinting-aware inheritance is a documented future extension.
+`python -c "import trio_prioritizer"`, the demo, and `pytest` all run fully offline with no
+key and no torch. **Research use only** — decision-support, not a diagnosis.
+
 ## Architecture
 
 ```
@@ -174,6 +223,15 @@ regmodel/
   compare.py          AlphaGenome cross-check reusing variant_curator's client (skips w/o key)
   plots.py            matplotlib (Agg) ISM heatmap, importance track, cross-check scatter
   cli.py              train / ism / variant / compare / demo (offline)
+
+trio_prioritizer/
+  models.py           Genotype/TrioVariant/InheritanceCall/NoncodingScore/PrioritizedCandidate
+                      (reuses variant_curator's Source + VariantConsequence)
+  inheritance.py      trio genotypes -> inheritance mode; compound-het pairing by parent-of-origin
+  scoring.py          non-coding score via injectable AlphaGenome scorer; optional regmodel ISM hook
+  prioritize.py       blends inheritance prior + non-coding magnitude into one ranked list
+  data.py             seeded synthetic trio (planted de novo + comp-het) + offline fake scorer
+  cli.py              demo (offline synthetic) / run --table trio.tsv; writes candidates.json
 ```
 
 Design decision worth calling out: gnomAD variant ids are built from VEP's `vcf_string`
