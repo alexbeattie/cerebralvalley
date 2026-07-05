@@ -121,26 +121,34 @@ python -m unittest discover -s tests
 
 ## AI at the edge (optional)
 
-Free-text clinical notes → HPO terms is the one place an LLM earns its keep. When
-`ANTHROPIC_API_KEY` is set, the UI's "Clinical notes" box and the CLI's `--notes` /
-`--notes-file` extract phenotypes via Claude (`causality_review/clients/llm.py`,
-`extract.py`). The design keeps AI strictly at the ingestion boundary:
+Turning messy free text into structured input is the one place an LLM earns its keep. When
+`ANTHROPIC_API_KEY` is set, two ingestion paths open up, both strictly at the boundary:
 
-1. the LLM **proposes** short phenotype phrases from the note;
-2. each phrase is **grounded** in a real HPO term by the deterministic ontology search —
-   the model never emits an HPO id, so it can't invent one;
-3. the scoring engine only ever sees validated HPO terms, and stays AI-free and sourced.
+- **Lab-report PDF drag-and-drop** — drop the PDF on the UI; it's read to text with `pypdf`
+  (`causality_review/pdf.py`), then the model pulls the **reported variants**
+  (gene / HGVS / classification, `extract_variants_raw`) *and* the phenotype phrases in one
+  pass (`extract.ingest_report`, endpoint `/api/ingest-pdf`). Both boxes fill from one drop.
+- **Clinical notes** — the UI's "Clinical notes" box and the CLI's `--notes` / `--notes-file`
+  extract phenotypes from pasted text (`extract.extract_from_notes`).
+
+The design keeps AI strictly at the ingestion boundary:
+
+1. the LLM **proposes** text it read off the page (variant rows, phenotype phrases);
+2. each phenotype phrase is **grounded** in a real HPO term by the deterministic ontology
+   search — the model never emits an HPO id, so it can't invent one;
+3. the scoring engine only ever sees validated HPO terms, and stays AI-free and sourced;
+4. everything the model fills is **editable** before the review runs — it drafts, you confirm.
 
 Ungrounded phrases are reported, not silently dropped, and the whole feature degrades
-gracefully (panel hidden / clear message) when no key is set. No new dependency — the
-Anthropic Messages API is called over the existing httpx layer; the key is read from the
-environment and never logged.
+gracefully (panels hidden / clear message) when no key is set. The Anthropic Messages API is
+called over the existing httpx layer; the key is read from the environment and never logged.
+A fictional fixture lives at `samples/sample_lab_report.pdf` (regenerate with
+`samples/make_sample_report.py`).
 
 ## Not built yet (next)
 
-- **PDF lab-report ingestion** — step 1 of the sketch (drag-and-drop the lab PDF to
-  auto-extract the reported variants). Notes → HPO extraction now exists; the PDF/variant
-  side does not, so variants are still entered as text.
+- **Scanned / image-only PDFs** — text extraction assumes a selectable-text PDF; OCR for
+  scanned reports is not wired up (the tool returns a clear message instead of guessing).
 - **Penetrance / inheritance / zygosity weighting**, and a management layer
   (natural history, what to test next, referrals).
 - **Information-content weighting** — a rare, specific feature (e.g. *Ectopia lentis*)

@@ -176,6 +176,41 @@ class LLMParseTests(unittest.TestCase):
             self.assertFalse(llm.is_configured())
 
 
+class VariantParseTests(unittest.TestCase):
+    def test_call_shapes_variant_objects(self):
+        # _call returns raw model text; extract_variants_raw parses + normalizes it.
+        from causality_review.clients import llm
+        reply = ('[{"gene":"SCN1A","hgvs":"c.3637C>T","classification":"Pathogenic"},'
+                 '{"gene":"FBN1","hgvs":"","classification":"VUS"}]')
+        with mock.patch.object(llm, "_call", lambda *a, **k: reply):
+            out = llm.extract_variants_raw(None, "report text")
+        self.assertEqual([v["gene"] for v in out], ["SCN1A", "FBN1"])
+        self.assertEqual(out[0]["hgvs"], "c.3637C>T")
+        self.assertEqual(out[1]["classification"], "VUS")
+
+    def test_drops_objects_without_a_gene(self):
+        from causality_review.clients import llm
+        with mock.patch.object(llm, "_call", lambda *a, **k: '[{"hgvs":"c.1A>T"},{"gene":"MYH7"}]'):
+            out = llm.extract_variants_raw(None, "x")
+        self.assertEqual([v["gene"] for v in out], ["MYH7"])
+
+
+class PdfTests(unittest.TestCase):
+    def test_missing_text_raises(self):
+        from causality_review import pdf
+        # A reader whose page yields no text -> a clean PdfError, not a stack trace.
+        fake_reader = type("R", (), {"pages": [type("P", (), {"extract_text": lambda self: ""})()]})
+        with mock.patch("pypdf.PdfReader", lambda *_a, **_k: fake_reader()):
+            with self.assertRaises(pdf.PdfError):
+                pdf.extract_text(b"%PDF-fake")
+
+    def test_extracts_page_text(self):
+        from causality_review import pdf
+        fake_reader = type("R", (), {"pages": [type("P", (), {"extract_text": lambda self: "SCN1A c.3637C>T"})()]})
+        with mock.patch("pypdf.PdfReader", lambda *_a, **_k: fake_reader()):
+            self.assertIn("SCN1A", pdf.extract_text(b"%PDF-fake"))
+
+
 class ExtractTests(unittest.TestCase):
     def test_llm_proposes_hpo_validates(self):
         # LLM proposes 3 phrases; HPO grounds 2, drops 1. Both clients faked.
@@ -189,6 +224,18 @@ class ExtractTests(unittest.TestCase):
                 result = extract.extract_from_notes(None, "some notes")
         self.assertEqual(len(result.phenotypes), 2)
         self.assertEqual(result.ungrounded, ["made up nonsense"])
+
+    def test_ingest_report_combines_variants_and_phenotypes(self):
+        # ingest_report should read variants AND ground phenotypes from one text blob.
+        from causality_review import extract
+        with mock.patch.object(extract, "extract_variants_raw",
+                               lambda _c, _t, model=None: [{"gene": "SCN1A", "hgvs": "c.3637C>T", "classification": "Pathogenic"}]):
+            with mock.patch.object(extract, "extract_phenotype_phrases",
+                                   lambda _c, _t, model=None: ["seizure"]):
+                with mock.patch.object(extract, "resolve_term", lambda _c, p: SEIZURE if p == "seizure" else None):
+                    ingest = extract.ingest_report(None, "report text")
+        self.assertEqual(ingest.variants[0]["gene"], "SCN1A")
+        self.assertEqual(len(ingest.phenotypes.phenotypes), 1)
 
 
 if __name__ == "__main__":

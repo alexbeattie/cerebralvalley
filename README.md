@@ -135,11 +135,20 @@ stdlib server serves one page and calls the *same* engine the CLI does (no mock 
 If the port is busy it automatically falls back to the next free one, so "Address already
 in use" won't stop you. (Equivalent long form: `./.venv/bin/python -m causality_review.webapp`.)
 
-**Optional AI phenotype extraction.** Set an Anthropic key and the UI gains a "Clinical
-notes" box: paste free text, click *Extract phenotypes with AI*, and it fills the features
-list. The LLM only **proposes** phrases; each is then grounded in a real HPO term by the
-deterministic ontology search (the model never emits an HPO id), and the scoring stays
-AI-free and sourced. Without a key the app runs exactly as before (the panel stays hidden).
+**Optional AI at the edge.** Set an Anthropic key and the UI gains two ingestion aids:
+
+- **Drop a lab-report PDF.** The PDF is read to text (pypdf), and the model pulls both the
+  reported variants (gene / HGVS / classification) and the phenotype phrases straight off the
+  page — filling the variants box *and* the features box in one drop. Try
+  [`samples/sample_lab_report.pdf`](samples/sample_lab_report.pdf) (a fictional report;
+  regenerate with `./.venv/bin/python samples/make_sample_report.py`).
+- **Paste clinical notes.** A "Clinical notes" box: paste free text, click *Extract
+  phenotypes with AI*, and it fills the features list.
+
+In both paths the LLM only **proposes** text; each phenotype phrase is then grounded in a
+real HPO term by the deterministic ontology search (the model never emits an HPO id), and the
+scoring stays AI-free and sourced. Everything it fills is editable before you run. Without a
+key the app runs exactly as before (both panels stay hidden).
 
 Store the key either way — a shell `export`, or a gitignored `.env` at the project root
 (the app auto-loads it, and an explicit `export` still wins):
@@ -150,7 +159,7 @@ cp .env.example .env        # then put your key in .env  (.env is gitignored)
 
 # or, per-shell:
 export ANTHROPIC_API_KEY=sk-ant-...
-export ANTHROPIC_MODEL=claude-3-5-sonnet-latest   # optional override
+export ANTHROPIC_MODEL=claude-sonnet-5   # optional override of the default model
 ./run_ui.sh
 
 # CLI equivalent:

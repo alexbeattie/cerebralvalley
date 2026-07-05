@@ -83,6 +83,16 @@
   .loading { color: var(--muted); margin-top: 40px; text-align: center; }
   .disease { color: var(--muted); font-size: 12.5px; font-style: italic; }
   h2.sec { font-size: 13px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); margin: 0 0 10px; }
+  .drop {
+    border: 1.5px dashed var(--line); border-radius: 12px; padding: 18px 16px; text-align: center;
+    color: var(--muted); cursor: pointer; transition: border-color .12s, background .12s;
+    background: var(--panel);
+  }
+  .drop:hover { border-color: var(--accent); }
+  .drop.over { border-color: var(--accent); background: rgba(91,140,255,.08); color: var(--ink); }
+  .drop .big { display: block; font-weight: 700; color: var(--ink); margin-bottom: 3px; font-size: 13.5px; }
+  .drop .sub { font-size: 12px; }
+  #drop-status { margin-top: 6px; font-size: 12px; }
 </style>
 </head>
 <body>
@@ -93,6 +103,15 @@
 
 <div class="wrap">
   <section class="inputs">
+    <div class="field" id="pdf-field" style="display:none">
+      <label>Lab report <span class="hint">— drop a PDF; AI fills variants + features</span></label>
+      <div id="drop" class="drop">
+        <span class="big">Drop a lab-report PDF here</span>
+        <span class="sub">or click to choose a file</span>
+      </div>
+      <input id="pdf-input" type="file" accept="application/pdf,.pdf" style="display:none" />
+      <div id="drop-status" class="hint"></div>
+    </div>
     <div class="field">
       <label>Reported variants
         <span class="hint">— one per line: <code>GENE</code> or <code>GENE:c.HGVS</code></span>
@@ -250,9 +269,70 @@ async function extract() {
   }
 }
 
-// Show the AI panel only when the server reports a key is configured.
+function fileToBase64(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result.split(",")[1] || "");
+    reader.onerror = () => reject(reader.error);
+    reader.readAsDataURL(file);
+  });
+}
+
+async function ingestPdf(file) {
+  const status = $("drop-status");
+  if (!file) return;
+  if (file.type && file.type !== "application/pdf" && !/\.pdf$/i.test(file.name)) {
+    status.innerHTML = '<span style="color:var(--bad)">That is not a PDF.</span>';
+    return;
+  }
+  status.textContent = "Reading “" + file.name + "”, then asking the model + grounding in HPO…";
+  try {
+    const pdf_base64 = await fileToBase64(file);
+    const resp = await fetch("/api/ingest-pdf", {
+      method: "POST", headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({pdf_base64})
+    });
+    const data = await resp.json();
+    if (data.error) { status.innerHTML = '<span style="color:var(--bad)">' + data.error + '</span>'; return; }
+
+    // Fill the variants box: GENE:c.HGVS (or just GENE when no HGVS was found).
+    const vlines = (data.variants || []).map(v => v.hgvs ? (v.gene + ":" + v.hgvs) : v.gene);
+    if (vlines.length) $("variants").value = vlines.join("\n");
+    // Fill the features box with grounded HPO labels.
+    const labels = (data.phenotypes || []).map(p => p.label);
+    if (labels.length) $("features").value = labels.join("\n");
+
+    let msg = "Found " + vlines.length + " variant(s) and " + labels.length +
+              " HPO term(s). Review/edit, then run.";
+    if (data.ungrounded && data.ungrounded.length)
+      msg += " Not grounded in HPO: " + data.ungrounded.join(", ") + ".";
+    status.innerHTML = '<span style="color:var(--good)">' + msg + '</span>';
+  } catch (e) {
+    status.innerHTML = '<span style="color:var(--bad)">Request failed: ' + e + '</span>';
+  }
+}
+
+function wireDropzone() {
+  const drop = $("drop"), input = $("pdf-input");
+  drop.addEventListener("click", () => input.click());
+  input.addEventListener("change", () => ingestPdf(input.files[0]));
+  ["dragenter", "dragover"].forEach(ev =>
+    drop.addEventListener(ev, (e) => { e.preventDefault(); drop.classList.add("over"); }));
+  ["dragleave", "dragend", "drop"].forEach(ev =>
+    drop.addEventListener(ev, (e) => { e.preventDefault(); drop.classList.remove("over"); }));
+  drop.addEventListener("drop", (e) => {
+    const file = e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0];
+    ingestPdf(file);
+  });
+}
+
+// Show the AI panels (notes + PDF drop) only when the server reports a key is configured.
 fetch("/api/config").then(r => r.json()).then(cfg => {
-  if (cfg.ai_enabled) $("ai-field").style.display = "block";
+  if (cfg.ai_enabled) {
+    $("ai-field").style.display = "block";
+    $("pdf-field").style.display = "block";
+    wireDropzone();
+  }
 }).catch(() => {});
 
 $("run").addEventListener("click", run);

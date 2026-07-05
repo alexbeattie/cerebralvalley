@@ -20,7 +20,7 @@ import re
 import httpx
 
 ANTHROPIC_URL = "https://api.anthropic.com/v1/messages"
-DEFAULT_MODEL = "claude-3-5-sonnet-latest"
+DEFAULT_MODEL = "claude-sonnet-5"  # override with ANTHROPIC_MODEL
 ANTHROPIC_VERSION = "2023-06-01"
 
 _SYSTEM = (
@@ -34,6 +34,16 @@ _SYSTEM = (
     "Respond with ONLY a JSON array of strings, nothing else."
 )
 
+_VARIANT_SYSTEM = (
+    "You extract reported genetic variants from a diagnostic lab report. For each "
+    "variant the report lists, return an object with: 'gene' (HGNC symbol), 'hgvs' "
+    "(the coding-level HGVS such as 'c.3637C>T', empty string if absent), and "
+    "'classification' (the lab's call, e.g. 'Pathogenic', 'Likely pathogenic', 'VUS', "
+    "empty string if absent). Include only variants the lab actually reports for this "
+    "patient; ignore methodology, references, and genes listed only as panel coverage. "
+    "Respond with ONLY a JSON array of objects, nothing else."
+)
+
 
 class LLMError(RuntimeError):
     """Raised when the LLM call cannot be made or its output can't be parsed."""
@@ -43,34 +53,39 @@ def is_configured() -> bool:
     return bool(os.environ.get("ANTHROPIC_API_KEY"))
 
 
-def _parse_array(text: str) -> list[str]:
-    """Pull a JSON array of strings out of the model's reply, tolerating prose."""
+def _parse_json_array(text: str) -> list:
+    """Pull a JSON array out of the model's reply, tolerating surrounding prose."""
 
     match = re.search(r"\[.*\]", text, re.DOTALL)
     if not match:
         raise LLMError(f"Model did not return a JSON array. Got: {text[:200]!r}")
     try:
-        data = json.loads(match.group(0))
+        return json.loads(match.group(0))
     except json.JSONDecodeError as exc:
         raise LLMError(f"Could not parse model JSON: {exc}") from exc
-    return [str(x).strip() for x in data if str(x).strip()]
 
 
-def extract_phenotype_phrases(client: httpx.Client, notes: str, *, model: str | None = None) -> list[str]:
-    """Ask Claude for candidate phenotype phrases from a clinical note."""
+def _parse_array(text: str) -> list[str]:
+    """A JSON array of strings (phenotype phrases)."""
+
+    return [str(x).strip() for x in _parse_json_array(text) if str(x).strip()]
+
+
+def _call(client: httpx.Client, system: str, user: str, *, model: str | None = None) -> str:
+    """One Anthropic Messages call; returns the concatenated text output."""
 
     api_key = os.environ.get("ANTHROPIC_API_KEY")
     if not api_key:
         raise LLMError(
             "ANTHROPIC_API_KEY is not set. Export it (export ANTHROPIC_API_KEY=sk-ant-...) "
-            "to enable AI extraction, or enter the patient's features manually."
+            "or add it to a .env file to enable AI extraction, or enter data manually."
         )
 
     payload = {
         "model": model or os.environ.get("ANTHROPIC_MODEL", DEFAULT_MODEL),
         "max_tokens": 1024,
-        "system": _SYSTEM,
-        "messages": [{"role": "user", "content": notes}],
+        "system": system,
+        "messages": [{"role": "user", "content": user}],
     }
     headers = {
         "x-api-key": api_key,
@@ -93,4 +108,24 @@ def extract_phenotype_phrases(client: httpx.Client, notes: str, *, model: str | 
     text = "".join(b.get("text", "") for b in blocks if b.get("type") == "text")
     if not text:
         raise LLMError("Empty response from the model.")
-    return _parse_array(text)
+    return text
+
+
+def extract_phenotype_phrases(client: httpx.Client, notes: str, *, model: str | None = None) -> list[str]:
+    """Ask Claude for candidate phenotype phrases from a clinical note."""
+
+    return _parse_array(_call(client, _SYSTEM, notes, model=model))
+
+
+def extract_variants_raw(client: httpx.Client, report_text: str, *, model: str | None = None) -> list[dict]:
+    """Ask Claude for the reported variants (gene/hgvs/classification) from lab-report text."""
+
+    out: list[dict] = []
+    for obj in _parse_json_array(_call(client, _VARIANT_SYSTEM, report_text, model=model)):
+        if isinstance(obj, dict) and obj.get("gene"):
+            out.append({
+                "gene": str(obj.get("gene", "")).strip(),
+                "hgvs": str(obj.get("hgvs", "")).strip(),
+                "classification": str(obj.get("classification", "")).strip(),
+            })
+    return out

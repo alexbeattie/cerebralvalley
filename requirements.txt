@@ -1,1 +1,3 @@
 httpx==0.27.2
+pypdf==6.14.2          # PDF -> text for the lab-report drag-and-drop
+reportlab==5.0.0       # only needed to (re)generate samples/sample_lab_report.pdf

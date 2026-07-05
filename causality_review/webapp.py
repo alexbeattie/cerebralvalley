@@ -15,6 +15,8 @@ features, source links, and the second-cause / dual-diagnosis flags.
 from __future__ import annotations
 
 import argparse
+import base64
+import binascii
 import json
 import webbrowser
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -24,9 +26,10 @@ from .clients.hpo import resolve_term
 from .clients.llm import LLMError, is_configured
 from .config import load_dotenv
 from .engine import review_causality
-from .extract import extract_from_notes
+from .extract import extract_from_notes, ingest_report
 from .http import get_client
 from .models import PatientProfile, Phenotype, ReportedVariant
+from .pdf import PdfError, extract_text
 
 STATIC_DIR = Path(__file__).parent / "static"
 
@@ -117,6 +120,44 @@ def _run_extract(payload: dict) -> dict:
     }
 
 
+def _run_ingest_pdf(payload: dict) -> dict:
+    """A dropped lab-report PDF -> reported variants + validated HPO phenotypes.
+
+    The client sends the PDF as base64 (keeps the stdlib server free of multipart
+    parsing). We extract text with pypdf, then the LLM edge reads variants and
+    phenotype phrases; HPO grounding stays deterministic.
+    """
+
+    b64 = payload.get("pdf_base64") or ""
+    if not b64:
+        return {"error": "No PDF data received."}
+    try:
+        data = base64.b64decode(b64, validate=True)
+    except (binascii.Error, ValueError):
+        return {"error": "PDF data was not valid base64."}
+
+    try:
+        text = extract_text(data)
+    except PdfError as exc:
+        return {"error": str(exc)}
+
+    with get_client() as client:
+        try:
+            ingest = ingest_report(client, text)
+        except LLMError as exc:
+            return {"error": str(exc)}
+
+    return {
+        "variants": ingest.variants,
+        "phenotypes": [
+            {"phrase": e.phrase, "hpo_id": e.phenotype.hpo_id, "label": e.phenotype.label}
+            for e in ingest.phenotypes.phenotypes
+        ],
+        "ungrounded": ingest.phenotypes.ungrounded,
+        "chars": len(text),
+    }
+
+
 class _Server(ThreadingHTTPServer):
     # Lets us rebind immediately after a restart instead of hitting "Address
     # already in use" while the old socket lingers in TIME_WAIT.
@@ -145,7 +186,11 @@ class Handler(BaseHTTPRequestHandler):
             self._send(404, b"not found", "text/plain")
 
     def do_POST(self) -> None:
-        routes = {"/api/review": _run_review, "/api/extract": _run_extract}
+        routes = {
+            "/api/review": _run_review,
+            "/api/extract": _run_extract,
+            "/api/ingest-pdf": _run_ingest_pdf,
+        }
         handler = routes.get(self.path)
         if handler is None:
             self._send(404, b"not found", "text/plain")

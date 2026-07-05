@@ -17,7 +17,7 @@ from dataclasses import dataclass, field
 import httpx
 
 from .clients.hpo import resolve_term
-from .clients.llm import extract_phenotype_phrases
+from .clients.llm import extract_phenotype_phrases, extract_variants_raw
 from .models import Phenotype
 
 
@@ -54,3 +54,23 @@ def extract_from_notes(client: httpx.Client, notes: str, *, model: str | None = 
         else:
             result.phenotypes.append(ExtractedPhenotype(phrase=phrase, phenotype=term))
     return result
+
+
+@dataclass
+class ReportIngest:
+    """Everything pulled from a dropped lab-report PDF."""
+
+    variants: list[dict] = field(default_factory=list)  # {gene, hgvs, classification}
+    phenotypes: ExtractionResult = field(default_factory=ExtractionResult)
+
+
+def ingest_report(client: httpx.Client, report_text: str, *, model: str | None = None) -> ReportIngest:
+    """Lab-report text -> reported variants + validated HPO phenotypes.
+
+    The LLM only proposes text (variants it read off the page, phenotype phrases);
+    HPO grounding stays deterministic so the scoring input is always real terms.
+    """
+
+    variants = extract_variants_raw(client, report_text, model=model)
+    phenotypes = extract_from_notes(client, report_text, model=model)
+    return ReportIngest(variants=variants, phenotypes=phenotypes)
