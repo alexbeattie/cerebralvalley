@@ -128,8 +128,12 @@ features, get the ranked causality list back. Zero third-party dependencies — 
 stdlib server serves one page and calls the *same* engine the CLI does (no mock data).
 
 ```
-./.venv/bin/python -m causality_review.webapp     # opens http://localhost:8000
+./run_ui.sh                    # opens http://localhost:8000 (or the next free port)
+./run_ui.sh --port 8080        # pick a port
 ```
+
+If the port is busy it automatically falls back to the next free one, so "Address already
+in use" won't stop you. (Equivalent long form: `./.venv/bin/python -m causality_review.webapp`.)
 
 ### CLI
 

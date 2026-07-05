@@ -94,6 +94,12 @@ def _run_review(payload: dict) -> dict:
     }
 
 
+class _Server(ThreadingHTTPServer):
+    # Lets us rebind immediately after a restart instead of hitting "Address
+    # already in use" while the old socket lingers in TIME_WAIT.
+    allow_reuse_address = True
+
+
 class Handler(BaseHTTPRequestHandler):
     def log_message(self, *args):  # keep the console clean
         pass
@@ -125,14 +131,29 @@ class Handler(BaseHTTPRequestHandler):
         self._send(200, json.dumps(result).encode(), "application/json")
 
 
+def _bind(port: int, tries: int = 20) -> _Server:
+    """Bind to `port`, or the next free port if it's already in use."""
+
+    last: OSError | None = None
+    for candidate in range(port, port + tries):
+        try:
+            return _Server(("127.0.0.1", candidate), Handler)
+        except OSError as exc:  # EADDRINUSE (48/98): try the next port
+            last = exc
+            if candidate == port:
+                print(f"Port {port} is busy; trying {port + 1}…")
+    raise SystemExit(f"No free port in {port}-{port + tries - 1}: {last}")
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Causality review web UI.")
     parser.add_argument("--port", type=int, default=8000)
     parser.add_argument("--no-open", action="store_true", help="don't auto-open a browser")
     args = parser.parse_args()
 
-    url = f"http://localhost:{args.port}"
-    server = ThreadingHTTPServer(("127.0.0.1", args.port), Handler)
+    server = _bind(args.port)
+    actual_port = server.server_address[1]
+    url = f"http://localhost:{actual_port}"
     print(f"Causality review UI running at {url}  (Ctrl-C to stop)")
     if not args.no_open:
         try:
