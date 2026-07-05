@@ -154,5 +154,42 @@ class ReviewTests(unittest.TestCase):
         self.assertFalse(report.fits[0].explained[0].exact)
 
 
+class LLMParseTests(unittest.TestCase):
+    def test_parses_plain_array(self):
+        from causality_review.clients import llm
+        self.assertEqual(llm._parse_array('["Seizure", "Ataxia"]'), ["Seizure", "Ataxia"])
+
+    def test_parses_array_embedded_in_prose(self):
+        from causality_review.clients import llm
+        out = llm._parse_array('Here are the terms:\n["Seizure", " Ataxia "]\nDone.')
+        self.assertEqual(out, ["Seizure", "Ataxia"])
+
+    def test_rejects_non_array(self):
+        from causality_review.clients import llm
+        with self.assertRaises(llm.LLMError):
+            llm._parse_array("no json here")
+
+    def test_not_configured_without_key(self):
+        import os
+        from causality_review.clients import llm
+        with mock.patch.dict(os.environ, {}, clear=True):
+            self.assertFalse(llm.is_configured())
+
+
+class ExtractTests(unittest.TestCase):
+    def test_llm_proposes_hpo_validates(self):
+        # LLM proposes 3 phrases; HPO grounds 2, drops 1. Both clients faked.
+        from causality_review import extract
+        with mock.patch.object(extract, "extract_phenotype_phrases",
+                               lambda _c, _n, model=None: ["seizure", "ataxia", "made up nonsense"]):
+            def fake_resolve(_c, phrase):
+                table = {"seizure": SEIZURE, "ataxia": Phenotype("HP:ATX", "Ataxia")}
+                return table.get(phrase)
+            with mock.patch.object(extract, "resolve_term", fake_resolve):
+                result = extract.extract_from_notes(None, "some notes")
+        self.assertEqual(len(result.phenotypes), 2)
+        self.assertEqual(result.ungrounded, ["made up nonsense"])
+
+
 if __name__ == "__main__":
     unittest.main()

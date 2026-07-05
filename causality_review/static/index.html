@@ -38,6 +38,8 @@
     background: var(--accent); color: white; font-weight: 700; font-size: 14.5px;
   }
   button:disabled { opacity: .55; cursor: default; }
+  button.secondary { width: auto; padding: 8px 14px; font-size: 13px; background: var(--panel2); border: 1px solid var(--line); color: var(--ink); }
+  button.secondary:hover { border-color: var(--accent); }
   .empty { color: var(--muted); margin-top: 40px; text-align: center; }
   .patient-chips { display: flex; flex-wrap: wrap; gap: 7px; margin: 6px 0 22px; }
   .chip {
@@ -98,6 +100,12 @@
       <textarea id="variants">SCN1A:c.3637C>T
 MYH7:c.1063G>A
 FBN1:c.4082G>A</textarea>
+    </div>
+    <div class="field" id="ai-field" style="display:none">
+      <label>Clinical notes <span class="hint">— paste free text; AI extracts the phenotypes</span></label>
+      <textarea id="notes" placeholder="e.g. 4 yo with recurrent febrile and afebrile seizures since infancy, global developmental delay, and gait ataxia. No cardiac abnormalities. Family history unremarkable."></textarea>
+      <button id="extract" class="secondary" style="margin-top:8px">Extract phenotypes with AI</button>
+      <div id="extract-status" class="hint" style="margin-top:6px"></div>
     </div>
     <div class="field">
       <label>Patient features
@@ -216,7 +224,39 @@ function render(data) {
   $("results").innerHTML = html;
 }
 
+async function extract() {
+  const notes = $("notes").value.trim();
+  if (!notes) { $("extract-status").textContent = "Paste some clinical notes first."; return; }
+  $("extract").disabled = true;
+  $("extract-status").textContent = "Asking the model, then grounding each phrase in HPO…";
+  try {
+    const resp = await fetch("/api/extract", {
+      method: "POST", headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({notes})
+    });
+    const data = await resp.json();
+    if (data.error) { $("extract-status").innerHTML = '<span style="color:var(--bad)">' + data.error + '</span>'; return; }
+    // Fill the features box with the grounded HPO terms (editable before running).
+    const labels = data.phenotypes.map(p => p.label);
+    $("features").value = labels.join("\n");
+    let msg = "Extracted " + labels.length + " HPO term(s); review/edit below, then run.";
+    if (data.ungrounded && data.ungrounded.length)
+      msg += " Not grounded in HPO: " + data.ungrounded.join(", ") + ".";
+    $("extract-status").textContent = msg;
+  } catch (e) {
+    $("extract-status").innerHTML = '<span style="color:var(--bad)">Request failed: ' + e + '</span>';
+  } finally {
+    $("extract").disabled = false;
+  }
+}
+
+// Show the AI panel only when the server reports a key is configured.
+fetch("/api/config").then(r => r.json()).then(cfg => {
+  if (cfg.ai_enabled) $("ai-field").style.display = "block";
+}).catch(() => {});
+
 $("run").addEventListener("click", run);
+$("extract").addEventListener("click", extract);
 </script>
 </body>
 </html>

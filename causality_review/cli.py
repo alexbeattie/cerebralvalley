@@ -20,7 +20,9 @@ from __future__ import annotations
 import argparse
 
 from .clients.hpo import resolve_term
+from .clients.llm import LLMError
 from .engine import review_causality
+from .extract import extract_from_notes
 from .http import get_client
 from .models import CausalityReport, PatientProfile, Phenotype, ReportedVariant
 
@@ -86,6 +88,25 @@ def _build_patient(client, hpo_args: list[str]) -> PatientProfile:
     return PatientProfile(phenotypes=phenotypes)
 
 
+def _phenotypes_from_notes(client, args) -> list[Phenotype]:
+    notes = args.notes
+    if args.notes_file:
+        with open(args.notes_file, encoding="utf-8") as fh:
+            notes = fh.read()
+    if not notes:
+        return []
+    try:
+        result = extract_from_notes(client, notes)
+    except LLMError as exc:
+        print(f"  (AI extraction unavailable: {exc})")
+        return []
+    for e in result.phenotypes:
+        print(f"  [AI] {e.phrase!r} -> {e.phenotype.hpo_id} {e.phenotype.label}")
+    for phrase in result.ungrounded:
+        print(f"  [AI] {phrase!r} -> (no HPO match; skipped)")
+    return result.deduped_phenotypes()
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Rank reported variants by fit to a patient.")
     parser.add_argument(
@@ -96,15 +117,19 @@ def main() -> None:
         "--hpo", action="append", default=[],
         help="Patient feature as free text or HP:xxxxxxx (repeatable)",
     )
+    parser.add_argument("--notes", help="Free-text clinical notes; AI extracts the phenotypes")
+    parser.add_argument("--notes-file", help="Path to a file of clinical notes (AI extraction)")
     args = parser.parse_args()
 
     with get_client() as client:
-        if args.variant and args.hpo:
+        if args.variant and (args.hpo or args.notes or args.notes_file):
             variants = []
             for spec in args.variant:
                 gene, _, hgvs = spec.partition(":")
                 variants.append(ReportedVariant(gene=gene.strip(), hgvs_c=hgvs.strip()))
-            patient = _build_patient(client, args.hpo)
+            phenotypes = _build_patient(client, args.hpo).phenotypes if args.hpo else []
+            phenotypes += _phenotypes_from_notes(client, args)
+            patient = PatientProfile(phenotypes=phenotypes)
         else:
             print("(no --variant/--hpo given; running hardcoded demo case)\n")
             variants = DEMO_VARIANTS

@@ -119,12 +119,28 @@ python -m unittest discover -s tests
 - **HPO / Jax ontology API** (`ontology.jax.org`) — gene → diseases → phenotype
   ids, term ancestors (is_a graph), and free-text → HPO term resolution. Public, keyless.
 
+## AI at the edge (optional)
+
+Free-text clinical notes → HPO terms is the one place an LLM earns its keep. When
+`ANTHROPIC_API_KEY` is set, the UI's "Clinical notes" box and the CLI's `--notes` /
+`--notes-file` extract phenotypes via Claude (`causality_review/clients/llm.py`,
+`extract.py`). The design keeps AI strictly at the ingestion boundary:
+
+1. the LLM **proposes** short phenotype phrases from the note;
+2. each phrase is **grounded** in a real HPO term by the deterministic ontology search —
+   the model never emits an HPO id, so it can't invent one;
+3. the scoring engine only ever sees validated HPO terms, and stays AI-free and sourced.
+
+Ungrounded phrases are reported, not silently dropped, and the whole feature degrades
+gracefully (panel hidden / clear message) when no key is set. No new dependency — the
+Anthropic Messages API is called over the existing httpx layer; the key is read from the
+environment and never logged.
+
 ## Not built yet (next)
 
-- **PDF lab-report ingestion** — today variants are passed on the CLI; step 2's
-  sketch has the clinician drag-and-drop the lab PDF.
-- **EMR-note → HPO extraction** — today the curator supplies HPO terms; production
-  extracts and normalizes them from clinical notes behind the site's firewall.
+- **PDF lab-report ingestion** — step 1 of the sketch (drag-and-drop the lab PDF to
+  auto-extract the reported variants). Notes → HPO extraction now exists; the PDF/variant
+  side does not, so variants are still entered as text.
 - **Penetrance / inheritance / zygosity weighting**, and a management layer
   (natural history, what to test next, referrals).
 - **Information-content weighting** — a rare, specific feature (e.g. *Ectopia lentis*)

@@ -135,6 +135,22 @@ stdlib server serves one page and calls the *same* engine the CLI does (no mock 
 If the port is busy it automatically falls back to the next free one, so "Address already
 in use" won't stop you. (Equivalent long form: `./.venv/bin/python -m causality_review.webapp`.)
 
+**Optional AI phenotype extraction.** Set an Anthropic key and the UI gains a "Clinical
+notes" box: paste free text, click *Extract phenotypes with AI*, and it fills the features
+list. The LLM only **proposes** phrases; each is then grounded in a real HPO term by the
+deterministic ontology search (the model never emits an HPO id), and the scoring stays
+AI-free and sourced. Without a key the app runs exactly as before (the panel stays hidden).
+
+```
+export ANTHROPIC_API_KEY=sk-ant-...        # enables the notes -> HPO extraction
+export ANTHROPIC_MODEL=claude-3-5-sonnet-latest   # optional override
+./run_ui.sh
+
+# CLI equivalent:
+./.venv/bin/python -m causality_review.cli --variant SCN1A:c.3637C>T \
+    --notes "4yo with recurrent febrile seizures, developmental delay, gait ataxia"
+```
+
 ### CLI
 
 ```

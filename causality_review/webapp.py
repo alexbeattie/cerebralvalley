@@ -21,7 +21,9 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
 from .clients.hpo import resolve_term
+from .clients.llm import LLMError, is_configured
 from .engine import review_causality
+from .extract import extract_from_notes
 from .http import get_client
 from .models import PatientProfile, Phenotype, ReportedVariant
 
@@ -94,6 +96,26 @@ def _run_review(payload: dict) -> dict:
     }
 
 
+def _run_extract(payload: dict) -> dict:
+    """Turn free-text clinical notes into validated HPO phenotypes via the LLM edge."""
+
+    notes = (payload.get("notes") or "").strip()
+    if not notes:
+        return {"error": "No clinical notes provided."}
+    with get_client() as client:
+        try:
+            result = extract_from_notes(client, notes)
+        except LLMError as exc:
+            return {"error": str(exc)}
+    return {
+        "phenotypes": [
+            {"phrase": e.phrase, "hpo_id": e.phenotype.hpo_id, "label": e.phenotype.label}
+            for e in result.phenotypes
+        ],
+        "ungrounded": result.ungrounded,
+    }
+
+
 class _Server(ThreadingHTTPServer):
     # Lets us rebind immediately after a restart instead of hitting "Address
     # already in use" while the old socket lingers in TIME_WAIT.
@@ -115,17 +137,22 @@ class Handler(BaseHTTPRequestHandler):
         if self.path in ("/", "/index.html"):
             html = (STATIC_DIR / "index.html").read_bytes()
             self._send(200, html, "text/html; charset=utf-8")
+        elif self.path == "/api/config":
+            # Lets the UI show/hide the AI panel based on whether a key is set.
+            self._send(200, json.dumps({"ai_enabled": is_configured()}).encode(), "application/json")
         else:
             self._send(404, b"not found", "text/plain")
 
     def do_POST(self) -> None:
-        if self.path != "/api/review":
+        routes = {"/api/review": _run_review, "/api/extract": _run_extract}
+        handler = routes.get(self.path)
+        if handler is None:
             self._send(404, b"not found", "text/plain")
             return
         length = int(self.headers.get("Content-Length", 0))
         try:
             payload = json.loads(self.rfile.read(length) or b"{}")
-            result = _run_review(payload)
+            result = handler(payload)
         except Exception as exc:  # pylint: disable=broad-except  # surface to UI, don't 500 silently
             result = {"error": f"{type(exc).__name__}: {exc}"}
         self._send(200, json.dumps(result).encode(), "application/json")
