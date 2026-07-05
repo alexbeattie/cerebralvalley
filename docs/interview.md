@@ -4,6 +4,25 @@ The plumbing is built and doesn't depend on these answers. Everything smart that
 top — which ACMG codes to prioritize, what "trust" looks like, which ancestry cases matter —
 does. Get the workflow from the users directly before writing the agent.
 
+## Update (post-conversation with Matt): his real ask is step 2
+
+Diagnostic variant work has three stages, and Matt's pain is the **second** one — not
+variant classification, but the clinician's causality review that comes after it:
+
+1. **Lab — variant classification.** Prioritize candidate variants off thin clinical
+   detail. This is what `variant_curator` (on `main`) does.
+2. **Clinical care — causality review.** The lab hands back 2–5 reported variants; the
+   clinician holds the patient's full phenotype and asks *"does this variant actually
+   explain THIS patient?"* **← Matt's real ask.**
+3. **Hard frontier — intronic/regulatory variants** the exome missed (the other feature
+   branches).
+
+Step 2 is prototyped on branch `feat/causality-review` (`causality_review/`, see
+[`causality-review.md`](causality-review.md)): reverse matching of reported variants
+against the patient's HPO profile, with explained-vs-unexplained features, a dual-diagnosis
+flag, and a genome-re-analysis trigger. The interview questions below still apply — they now
+sharpen step 2 rather than an ACMG classifier.
+
 ## The one question that does most of the work
 
 > "Walk me through the last VUS you classified. What did you open, in what order, and where
@@ -26,8 +45,11 @@ That tells you what to automate and what to skip.
 
 Ask both. Build for whoever's pain is more acute.
 
-- **Matt (clinical):** classify one clinical variant → ACMG 5-tier call. This is what the
-  MVP is currently pointed at.
+- **Matt (clinical):** causality review — given the lab's 2–5 reported variants + the
+  patient's full phenotype, rank which variant actually explains THIS patient, and flag
+  unexplained features (second cause / re-analysis). This is step 2, prototyped on
+  `feat/causality-review`. (Earlier framing here said "classify one variant → ACMG call";
+  the conversation with Matt moved the target downstream to causality review.)
 - **Bridget (research):** if her need is sharper, the same engine tilts to research — rank
   candidate variants in an ASD exome by neurodevelopmental gene relevance and de novo
   status. Same retrieval, same grounding, same eval logic; different output.
