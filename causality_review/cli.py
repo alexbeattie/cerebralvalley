@@ -60,7 +60,7 @@ def _print_report(report: CausalityReport) -> None:
         if f.variant.lab_classification:
             print(f"       lab call  : {f.variant.lab_classification}")
         if f.explained:
-            print(f"       explains  : {', '.join(ph.label for ph in f.explained)}")
+            print(f"       explains  : {', '.join(m.display for m in f.explained)}")
         if f.unexplained:
             print(f"       leaves    : {', '.join(ph.label for ph in f.unexplained)}")
         if f.diseases:

@@ -94,7 +94,23 @@ class GenePhenotypeKnowledge:
     found: bool
     diseases: list[str] = field(default_factory=list)
     phenotype_ids: set[str] = field(default_factory=set)
+    phenotype_labels: dict[str, str] = field(default_factory=dict)  # hpo_id -> label
     source: Optional[Source] = None
+
+
+@dataclass
+class ExplainedMatch:
+    """A patient feature the gene explains, and how it matched."""
+
+    phenotype: Phenotype  # the patient's feature
+    via: str  # the gene-annotated term that explained it (label)
+    exact: bool  # True = same HPO term; False = matched a broader ancestor
+
+    @property
+    def display(self) -> str:
+        if self.exact:
+            return self.phenotype.label
+        return f"{self.phenotype.label} (via broader: {self.via})"
 
 
 @dataclass
@@ -104,7 +120,7 @@ class VariantFit:
     variant: ReportedVariant
     tier: FitTier
     score: float  # fraction of patient phenotypes this gene explains, 0..1
-    explained: list[Phenotype] = field(default_factory=list)
+    explained: list[ExplainedMatch] = field(default_factory=list)
     unexplained: list[Phenotype] = field(default_factory=list)
     diseases: list[str] = field(default_factory=list)
     rationale: str = ""

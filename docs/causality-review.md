@@ -45,11 +45,17 @@ Inputs:
 Engine (`causality_review/engine.py`):
 1. For each reported variant, pull its gene's known disease phenotypes from HPO/Jax.
 2. Split the patient's features into **explained** vs **unexplained** by that gene.
+   Matching is **ontology-aware**: a gene annotated to a broad term (e.g. *Seizure*)
+   explains a patient's more specific feature (e.g. *Focal-onset seizure*) by walking
+   the HPO `is_a` graph. Such matches are shown as "via broader: <term>".
 3. Score = fraction of the patient's features the gene explains; map to a tier:
    `Best fit (****) ≥ all · Possible (***) ≥ 0.6 · Partial (**) ≥ 0.3 · Weak (*) > 0 · Unlikely (.)`.
 4. Rank variants by fit (objective, not by the lab's ordering).
 5. Compute **residual** features explained by *no* reported variant → second-cause /
    re-analysis flag.
+6. Detect a **dual diagnosis**: when no single variant covers the picture but two
+   reported variants are complementary (each explains features the other does not)
+   and together account for it, flag the ~5% "two independent causes" case.
 
 Every gene–phenotype claim carries an openable HPO source URL, and the tool
 abstains (marks a variant unscored) when it cannot retrieve knowledge for a gene —
@@ -76,9 +82,6 @@ python -m causality_review.cli \
   sketch has the clinician drag-and-drop the lab PDF.
 - **EMR-note → HPO extraction** — today the curator supplies HPO terms; production
   extracts and normalizes them from clinical notes behind the site's firewall.
-- **Ontology-aware matching** — currently exact HPO-id membership. Should credit a
-  patient's specific term (e.g. *focal-onset seizure*) when the gene is annotated
-  to an ancestor (*seizure*), via HPO's `is_a` graph.
 - **Penetrance / inheritance / zygosity weighting**, and a management layer
   (natural history, what to test next, referrals).
 - **Eval harness** — solved cases with known causal genes, labels hidden, measure

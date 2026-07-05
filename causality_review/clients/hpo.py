@@ -49,6 +49,35 @@ def _gene_id(client: httpx.Client, gene: str) -> str | None:
     return None
 
 
+# Ancestors are shared across genes/patients within a run, so cache them to keep
+# the is_a graph walk to one API call per distinct term.
+_ANCESTOR_CACHE: dict[str, set[str]] = {}
+
+
+def ancestor_ids(client: httpx.Client, hpo_id: str) -> set[str]:
+    """The term itself plus all its HPO is_a ancestors (excluding the roots).
+
+    Used so a gene annotated to a broad term (e.g. Seizure) still explains a
+    patient's more specific feature (e.g. Focal-onset seizure).
+    """
+
+    if hpo_id in _ANCESTOR_CACHE:
+        return _ANCESTOR_CACHE[hpo_id]
+
+    ids = {hpo_id}
+    try:
+        data = get_json(client, f"{JAX_API}/hp/terms/{hpo_id}/ancestors")
+        if isinstance(data, list):
+            # Drop the ontology roots; they carry no clinical meaning and would
+            # make everything "match" everything.
+            roots = {"All", "Phenotypic abnormality"}
+            ids |= {t["id"] for t in data if t.get("id") and t.get("name") not in roots}
+    except Exception:
+        pass  # fall back to exact-only matching for this term
+    _ANCESTOR_CACHE[hpo_id] = ids
+    return ids
+
+
 def fetch_gene_phenotypes(client: httpx.Client, gene: str) -> GenePhenotypeKnowledge:
     """All HPO phenotypes and diseases associated with a gene."""
 
@@ -66,7 +95,8 @@ def fetch_gene_phenotypes(client: httpx.Client, gene: str) -> GenePhenotypeKnowl
     if not isinstance(data, dict) or "phenotypes" not in data:
         return GenePhenotypeKnowledge(gene=gene, found=False, source=source)
 
-    phenotype_ids = {p["id"] for p in data.get("phenotypes", []) if p.get("id")}
+    phenotype_labels = {p["id"]: p.get("name", p["id"]) for p in data.get("phenotypes", []) if p.get("id")}
+    phenotype_ids = set(phenotype_labels)
     diseases = [d.get("name", "") for d in data.get("diseases", []) if d.get("name")]
 
     return GenePhenotypeKnowledge(
@@ -74,5 +104,6 @@ def fetch_gene_phenotypes(client: httpx.Client, gene: str) -> GenePhenotypeKnowl
         found=bool(phenotype_ids),
         diseases=diseases,
         phenotype_ids=phenotype_ids,
+        phenotype_labels=phenotype_labels,
         source=source,
     )

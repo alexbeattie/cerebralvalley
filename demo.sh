@@ -74,6 +74,14 @@ case_run \
   --variant "KCNQ1:c.477+1G>A" --variant "MYH7:c.1063G>A" \
   --hpo "Hypertrophic cardiomyopathy" --hpo "Prolonged QT interval" --hpo "Syncope"
 
+# 4. Dual diagnosis: two independent causes (~5% of solved cases) --------------
+case_run \
+  "Dual diagnosis — two causes the review keeps separate" \
+  "A patient with an epilepsy picture AND connective-tissue features. Neither reported variant explains everything, but SCN1A covers the seizures and FBN1 (Marfan) covers the ectopia lentis / aortic / skeletal findings. The tool flags the ~5% 'two independent causes' case instead of forcing one variant to explain all." \
+  --variant "SCN1A:c.3637C>T" --variant "FBN1:c.4082G>A" \
+  --hpo "Seizure" --hpo "Global developmental delay" \
+  --hpo "Ectopia lentis" --hpo "Aortic aneurysm" --hpo "Arachnodactyly"
+
 echo
 echo "${GREEN}${BOLD}  Demo complete.${RESET}"
 echo "${DIM}  Every gene-phenotype link carries an openable HPO source URL. Ranking is"

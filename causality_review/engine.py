@@ -15,12 +15,14 @@ from __future__ import annotations
 
 import httpx
 
-from .clients.hpo import fetch_gene_phenotypes
+from .clients.hpo import ancestor_ids, fetch_gene_phenotypes
 from .models import (
     CausalityReport,
+    ExplainedMatch,
     FitTier,
     GenePhenotypeKnowledge,
     PatientProfile,
+    Phenotype,
     ReportedVariant,
     VariantFit,
 )
@@ -41,7 +43,27 @@ def _tier_for(score: float) -> FitTier:
     return FitTier.UNLIKELY
 
 
-def _score_one(variant: ReportedVariant, patient: PatientProfile, knowledge: GenePhenotypeKnowledge) -> VariantFit:
+def _match_feature(
+    client: httpx.Client, feature: Phenotype, knowledge: GenePhenotypeKnowledge
+) -> ExplainedMatch | None:
+    """Does the gene explain this patient feature, exactly or via a broader term?"""
+
+    if feature.hpo_id in knowledge.phenotype_ids:
+        return ExplainedMatch(phenotype=feature, via=feature.label, exact=True)
+
+    # Ontology-aware: a gene annotated to a broader term (e.g. Seizure) explains
+    # the patient's more specific feature (e.g. Focal-onset seizure).
+    ancestors = ancestor_ids(client, feature.hpo_id)
+    broader = ancestors & knowledge.phenotype_ids
+    if broader:
+        via_label = next((knowledge.phenotype_labels[a] for a in broader if a in knowledge.phenotype_labels), "")
+        return ExplainedMatch(phenotype=feature, via=via_label or feature.label, exact=False)
+    return None
+
+
+def _score_one(
+    client: httpx.Client, variant: ReportedVariant, patient: PatientProfile, knowledge: GenePhenotypeKnowledge
+) -> VariantFit:
     if not knowledge.found:
         return VariantFit(
             variant=variant,
@@ -53,8 +75,15 @@ def _score_one(variant: ReportedVariant, patient: PatientProfile, knowledge: Gen
             knowledge_found=False,
         )
 
-    explained = [p for p in patient.phenotypes if p.hpo_id in knowledge.phenotype_ids]
-    unexplained = [p for p in patient.phenotypes if p.hpo_id not in knowledge.phenotype_ids]
+    explained: list[ExplainedMatch] = []
+    unexplained: list[Phenotype] = []
+    for feature in patient.phenotypes:
+        match = _match_feature(client, feature, knowledge)
+        if match is not None:
+            explained.append(match)
+        else:
+            unexplained.append(feature)
+
     total = len(patient.phenotypes) or 1
     score = len(explained) / total
     tier = _tier_for(score)
@@ -87,14 +116,14 @@ def review_causality(
     fits: list[VariantFit] = []
     for v in variants:
         knowledge = fetch_gene_phenotypes(client, v.gene)
-        fits.append(_score_one(v, patient, knowledge))
+        fits.append(_score_one(client, v, patient, knowledge))
 
     # Rank: higher score first, then by lab-classification prominence is left to
     # the clinician -- we sort purely on fit so the ranking stays objective.
     fits.sort(key=lambda f: (f.score, len(f.explained)), reverse=True)
 
     # Features explained by NO reported variant at all.
-    explained_ids = {p.hpo_id for f in fits for p in f.explained}
+    explained_ids = {m.phenotype.hpo_id for f in fits for m in f.explained}
     residual = [p for p in patient.phenotypes if p.hpo_id not in explained_ids]
 
     report = CausalityReport(patient=patient, fits=fits, residual_unexplained=residual)
@@ -115,6 +144,28 @@ def _build_flags(fits: list[VariantFit], residual: list, n_features: int) -> lis
             f"No single variant explains everything; best candidate ({top.variant.label}) "
             f"explains {len(top.explained)}/{n_features}."
         )
+
+    # Dual diagnosis: no single variant covers the picture, but a second reported
+    # variant explains features the top one does not, and together they cover
+    # (nearly) everything. This is the ~5% "second independent cause" case.
+    if top and top.tier != FitTier.BEST_FIT:
+        top_ids = {m.phenotype.hpo_id for m in top.explained}
+        union_ids = {m.phenotype.hpo_id for f in fits for m in f.explained}
+        complementary = [
+            f for f in fits[1:]
+            if {m.phenotype.hpo_id for m in f.explained} - top_ids
+        ]
+        if complementary and len(union_ids) > len(top_ids) and len(union_ids) >= n_features - len(residual):
+            second = complementary[0]
+            extra = ", ".join(
+                m.phenotype.label for m in second.explained
+                if m.phenotype.hpo_id not in top_ids
+            )
+            flags.append(
+                f"Possible dual diagnosis (two independent causes, ~5% of solved cases): "
+                f"{second.variant.label} additionally explains {extra}, which "
+                f"{top.variant.label} does not. Consider both variants as contributing."
+            )
 
     if residual:
         labels = ", ".join(p.label for p in residual)
