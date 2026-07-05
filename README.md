@@ -121,6 +121,18 @@ reported variant, how well does its gene's known disease phenotype explain the p
 HPO features? — and ranks them, separating explained from unexplained features and flagging
 a possible second cause / genome re-analysis. Full design: [`docs/causality-review.md`](docs/causality-review.md).
 
+### Web UI (Matt's sketch)
+
+A point-and-click version of the review: enter the reported variants and the patient's
+features, get the ranked causality list back. Zero third-party dependencies — Python's
+stdlib server serves one page and calls the *same* engine the CLI does (no mock data).
+
+```
+./.venv/bin/python -m causality_review.webapp     # opens http://localhost:8000
+```
+
+### CLI
+
 ```
 # hardcoded demo case
 ./.venv/bin/python -m causality_review.cli

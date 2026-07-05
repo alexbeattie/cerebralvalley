@@ -65,11 +65,22 @@ step 1.
 Run it:
 
 ```
+# web UI (Matt's sketch): enter variants + features, get the ranked list back
+python -m causality_review.webapp                   # http://localhost:8000
+
+# or the CLI
 python -m causality_review.cli                      # hardcoded demo case
 python -m causality_review.cli \
     --variant SCN1A:c.3637C>T --variant MYH7:c.1063G>A \
     --hpo "seizures" --hpo "global developmental delay" --hpo "ataxia"
 ```
+
+The web UI (`causality_review/webapp.py` + `static/index.html`) is a stdlib HTTP server
+with a single JSON endpoint that runs the real `review_causality` — same engine as the CLI.
+It covers steps 2 and 3 of Matt's interface sketch (enter reported variants, enter/paste
+patient features, get the ranked causality list with explained/unexplained features, source
+links, and flags). Step 1 of his sketch — **drag-and-drop the lab-report PDF** — is still on
+the "not built yet" list below; today variants and features are entered as text.
 
 ## Evaluation
 
