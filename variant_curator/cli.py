@@ -86,7 +86,16 @@ def main() -> None:
         print("(no --gene/--hgvs given; running hardcoded demo variant)\n")
         variant = DEMO_VARIANT
 
-    bundle = assemble_evidence(variant)
+    try:
+        bundle = assemble_evidence(variant)
+    except ValueError as exc:
+        # Out-of-scope input (e.g. gene not in the allowlist) is a deliberate
+        # refusal, not a crash. Present it as such instead of a stack trace.
+        print("=" * 72)
+        print(f"  Refused: {variant.label}")
+        print("=" * 72)
+        print(f"\n[refused] {exc}\n")
+        raise SystemExit(2)
     _print_bundle(bundle)
 
 
