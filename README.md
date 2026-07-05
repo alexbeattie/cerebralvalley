@@ -1,5 +1,12 @@
 # Variant-Curation Assistant (MVP)
 
+> **This branch (`feat/causality-review`) adds a second tool: `causality_review`.**
+> `variant_curator` is **step 1** (the lab's variant classification, described below).
+> `causality_review` is **step 2** — the clinician's causality review: given the variants
+> the lab already reported plus the patient's phenotype, rank which one actually explains
+> THIS patient. See **[`docs/causality-review.md`](docs/causality-review.md)** and the
+> [Causality review](#causality-review-step-2) section below.
+
 Drafts an [ACMG/AMP](https://www.ncbi.nlm.nih.gov/pubmed/25741868) classification for a
 **single missense or nonsense SNV**, with every piece of evidence linked to its source,
 and **abstains where the evidence isn't there**.
@@ -102,3 +109,59 @@ literature).
 The build plan is gated on a short interview with the two named users (Matt, Bridget). Their
 answers become the grounding spec; guessing here would waste the week. See
 [`docs/interview.md`](docs/interview.md) for the exact questions.
+
+---
+
+# Causality review (step 2)
+
+The clinician's question, downstream of classification: the lab reports 2–5 suspicious
+variants; the clinician holds the patient's full phenotype and asks **"does this variant
+actually explain THIS patient?"** `causality_review` runs the match in reverse — for each
+reported variant, how well does its gene's known disease phenotype explain the patient's
+HPO features? — and ranks them, separating explained from unexplained features and flagging
+a possible second cause / genome re-analysis. Full design: [`docs/causality-review.md`](docs/causality-review.md).
+
+```
+# hardcoded demo case
+./.venv/bin/python -m causality_review.cli
+
+# your own case: reported variants + patient features (free text or HP:xxxxxxx)
+./.venv/bin/python -m causality_review.cli \
+    --variant SCN1A:c.3637C>T --variant MYH7:c.1063G>A \
+    --hpo "seizures" --hpo "global developmental delay" --hpo "ataxia"
+
+./demo.sh                 # four guided cases (best fit, partial+orphan, two partials, dual dx)
+```
+
+Key properties:
+
+- **Ontology-aware matching** — walks the HPO `is_a` graph so a gene annotated to a broad
+  term (*Seizure*) explains a specific feature (*Focal-onset seizure*), while excluding
+  organ-system container nodes so a cardiac gene can't "explain" any cardiac feature.
+- **Honest partials** — a partial match reads as `Partial (explains 3/5)`, not "close enough".
+- **Second-cause + dual-diagnosis flags** — surfaces features no reported variant explains,
+  and the ~5% case where two variants are each partly responsible.
+- **Sourced + abstaining** — every gene–phenotype link carries an openable HPO URL; a gene
+  with no retrievable knowledge is marked unscored, not guessed.
+
+## Eval
+
+A ranking sanity/regression harness: 9 solved cases (real classic HPO features), each
+scored against a panel of every fixture gene, measuring how often the true gene ranks first.
+
+```
+./.venv/bin/python -m causality_review.eval
+```
+
+Current result: **top-1 89%, top-3 100%, MRR 0.926** (9 cases, 9-gene panel). This tests
+ranking and discrimination against live HPO data; it is not a held-out clinical validation
+(phenotypes are curated classic features matched against the same HPO annotations), so a real
+deployment must still be measured on real solved cases. The one miss (RYR1 malignant
+hyperthermia, ranked 3rd) is honest: MH is an anesthesia-triggered reaction whose baseline
+HPO features overlap other myopathies.
+
+Offline unit tests (no network, fake ontology):
+
+```
+./.venv/bin/python -m unittest discover -s tests
+```

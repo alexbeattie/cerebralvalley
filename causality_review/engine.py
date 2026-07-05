@@ -118,9 +118,14 @@ def review_causality(
         knowledge = fetch_gene_phenotypes(client, v.gene)
         fits.append(_score_one(client, v, patient, knowledge))
 
-    # Rank: higher score first, then by lab-classification prominence is left to
-    # the clinician -- we sort purely on fit so the ranking stays objective.
-    fits.sort(key=lambda f: (f.score, len(f.explained)), reverse=True)
+    # Rank purely on fit so the ordering stays objective. Tie-break toward the
+    # gene with more EXACT phenotype matches (vs broadened ancestor matches): a
+    # gene annotated to the patient's precise feature is a better explanation
+    # than one that only matches a more general term.
+    fits.sort(
+        key=lambda f: (f.score, sum(m.exact for m in f.explained), len(f.explained)),
+        reverse=True,
+    )
 
     # Features explained by NO reported variant at all.
     explained_ids = {m.phenotype.hpo_id for f in fits for m in f.explained}

@@ -12,12 +12,27 @@ openable source URL so a clinician can verify the gene-disease link.
 
 from __future__ import annotations
 
+import re
+
 import httpx
 
 from ..http import get_json, now_iso
 from ..models import GenePhenotypeKnowledge, Phenotype, Source
 
 JAX_API = "https://ontology.jax.org/api"
+
+# Ontology roots carry no clinical meaning.
+_ROOT_NAMES = {"All", "Phenotypic abnormality"}
+
+# Organ-system "container" nodes (e.g. "Abnormality of the cardiovascular
+# system", "Abnormal nervous system physiology"). Matching a patient feature to
+# a gene THROUGH one of these is spurious -- it only means the gene has some
+# annotation in that whole organ system. We exclude them from ancestor matching,
+# while keeping real (if broad) phenotypes like "Seizure" or "Cardiomyopathy".
+_SYSTEM_CONTAINER_RE = re.compile(
+    r"^(abnormality of (the )?.+ system|abnormal .+ system (morphology|physiology))$",
+    re.IGNORECASE,
+)
 
 
 def resolve_term(client: httpx.Client, query: str) -> Phenotype | None:
@@ -68,38 +83,56 @@ def ancestor_ids(client: httpx.Client, hpo_id: str) -> set[str]:
     try:
         data = get_json(client, f"{JAX_API}/hp/terms/{hpo_id}/ancestors")
         if isinstance(data, list):
-            # Drop the ontology roots; they carry no clinical meaning and would
-            # make everything "match" everything.
-            roots = {"All", "Phenotypic abnormality"}
-            ids |= {t["id"] for t in data if t.get("id") and t.get("name") not in roots}
+            # Drop ontology roots and organ-system container nodes: matching
+            # through "Abnormality of the cardiovascular system" would let any
+            # gene with any cardiac annotation "explain" a specific cardiac
+            # feature, which is exactly the overfit this tool exists to prevent.
+            for t in data:
+                name = t.get("name", "")
+                if not t.get("id") or name in _ROOT_NAMES or _SYSTEM_CONTAINER_RE.match(name):
+                    continue
+                ids.add(t["id"])
     except Exception:
         pass  # fall back to exact-only matching for this term
     _ANCESTOR_CACHE[hpo_id] = ids
     return ids
 
 
+# Gene knowledge is stable within a run and often queried repeatedly (a gene
+# reported twice, or the same decoy panel across many eval cases), so cache it.
+_GENE_CACHE: dict[str, GenePhenotypeKnowledge] = {}
+
+
 def fetch_gene_phenotypes(client: httpx.Client, gene: str) -> GenePhenotypeKnowledge:
     """All HPO phenotypes and diseases associated with a gene."""
+
+    key = gene.upper()
+    if key in _GENE_CACHE:
+        return _GENE_CACHE[key]
 
     web_url = f"https://hpo.jax.org/browse/gene/{gene}"
     source = Source(name="HPO (Jax)", url=web_url, retrieved_at=now_iso(), detail=gene)
 
     gene_id = _gene_id(client, gene)
     if not gene_id:
-        return GenePhenotypeKnowledge(gene=gene, found=False, source=source)
+        result = GenePhenotypeKnowledge(gene=gene, found=False, source=source)
+        _GENE_CACHE[key] = result
+        return result
 
     source.detail = f"{gene} ({gene_id})"
     source.url = f"https://ontology.jax.org/api/network/annotation/{gene_id}"
 
     data = get_json(client, f"{JAX_API}/network/annotation/{gene_id}")
     if not isinstance(data, dict) or "phenotypes" not in data:
-        return GenePhenotypeKnowledge(gene=gene, found=False, source=source)
+        result = GenePhenotypeKnowledge(gene=gene, found=False, source=source)
+        _GENE_CACHE[key] = result
+        return result
 
     phenotype_labels = {p["id"]: p.get("name", p["id"]) for p in data.get("phenotypes", []) if p.get("id")}
     phenotype_ids = set(phenotype_labels)
     diseases = [d.get("name", "") for d in data.get("diseases", []) if d.get("name")]
 
-    return GenePhenotypeKnowledge(
+    result = GenePhenotypeKnowledge(
         gene=gene,
         found=bool(phenotype_ids),
         diseases=diseases,
@@ -107,3 +140,5 @@ def fetch_gene_phenotypes(client: httpx.Client, gene: str) -> GenePhenotypeKnowl
         phenotype_labels=phenotype_labels,
         source=source,
     )
+    _GENE_CACHE[key] = result
+    return result

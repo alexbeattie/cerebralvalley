@@ -71,10 +71,42 @@ python -m causality_review.cli \
     --hpo "seizures" --hpo "global developmental delay" --hpo "ataxia"
 ```
 
+## Evaluation
+
+`causality_review/eval.py` is a ranking sanity/regression harness: 9 solved cases
+(each a set of real classic HPO features + the true causal gene) scored against a
+panel of every fixture gene, measuring how often the true gene ranks first.
+
+```
+python -m causality_review.eval
+```
+
+Current result: **top-1 89%, top-3 100%, MRR 0.926** (9 cases, 9-gene panel).
+
+Honest caveat: this tests ranking and discrimination against live HPO data, not a
+held-out clinical validation — the phenotypes are curated classic features and the
+tool matches against the same HPO annotations, so a real deployment must still be
+measured on real solved cases. The single miss (RYR1 malignant hyperthermia, 3rd) is
+genuine signal: MH is an anesthesia-triggered reaction whose baseline HPO features
+overlap other myopathies.
+
+Deriving the eval also drove a real engine fix: naive ancestor matching let genes
+"explain" a feature through organ-system container nodes (e.g. FBN1 matching *Prolonged
+QT interval* via *Abnormality of the cardiovascular system*), inflating cross-system
+scores. Those container terms are now excluded, and exact matches tie-break above
+ancestor matches. Top-1 went 56% → 89%.
+
+Offline unit tests (no network, fake ontology) cover matching, tiering, the
+explained/unexplained split, ranking, residual, and the dual-diagnosis flag:
+
+```
+python -m unittest discover -s tests
+```
+
 ## Data sources
 
 - **HPO / Jax ontology API** (`ontology.jax.org`) — gene → diseases → phenotype
-  ids, and free-text → HPO term resolution. Public, keyless.
+  ids, term ancestors (is_a graph), and free-text → HPO term resolution. Public, keyless.
 
 ## Not built yet (next)
 
@@ -84,8 +116,9 @@ python -m causality_review.cli \
   extracts and normalizes them from clinical notes behind the site's firewall.
 - **Penetrance / inheritance / zygosity weighting**, and a management layer
   (natural history, what to test next, referrals).
-- **Eval harness** — solved cases with known causal genes, labels hidden, measure
-  how often the true gene ranks first.
+- **Information-content weighting** — a rare, specific feature (e.g. *Ectopia lentis*)
+  should count more than a common one (*Developmental delay*); current scoring weights
+  every feature equally.
 
 ## Two hard rules (unchanged)
 
