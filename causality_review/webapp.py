@@ -22,6 +22,7 @@ from pathlib import Path
 
 from .clients.hpo import resolve_term
 from .clients.llm import LLMError, is_configured
+from .config import load_dotenv
 from .engine import review_causality
 from .extract import extract_from_notes
 from .http import get_client
@@ -173,6 +174,7 @@ def _bind(port: int, tries: int = 20) -> _Server:
 
 
 def main() -> None:
+    load_dotenv()
     parser = argparse.ArgumentParser(description="Causality review web UI.")
     parser.add_argument("--port", type=int, default=8000)
     parser.add_argument("--no-open", action="store_true", help="don't auto-open a browser")

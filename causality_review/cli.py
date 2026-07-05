@@ -21,6 +21,7 @@ import argparse
 
 from .clients.hpo import resolve_term
 from .clients.llm import LLMError
+from .config import load_dotenv
 from .engine import review_causality
 from .extract import extract_from_notes
 from .http import get_client
@@ -108,6 +109,7 @@ def _phenotypes_from_notes(client, args) -> list[Phenotype]:
 
 
 def main() -> None:
+    load_dotenv()
     parser = argparse.ArgumentParser(description="Rank reported variants by fit to a patient.")
     parser.add_argument(
         "--variant", action="append", default=[],

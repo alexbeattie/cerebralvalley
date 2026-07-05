@@ -141,8 +141,15 @@ list. The LLM only **proposes** phrases; each is then grounded in a real HPO ter
 deterministic ontology search (the model never emits an HPO id), and the scoring stays
 AI-free and sourced. Without a key the app runs exactly as before (the panel stays hidden).
 
+Store the key either way — a shell `export`, or a gitignored `.env` at the project root
+(the app auto-loads it, and an explicit `export` still wins):
+
 ```
-export ANTHROPIC_API_KEY=sk-ant-...        # enables the notes -> HPO extraction
+cp .env.example .env        # then put your key in .env  (.env is gitignored)
+./run_ui.sh
+
+# or, per-shell:
+export ANTHROPIC_API_KEY=sk-ant-...
 export ANTHROPIC_MODEL=claude-3-5-sonnet-latest   # optional override
 ./run_ui.sh
 
